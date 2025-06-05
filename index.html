@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Roller Coaster - Momentum Simulation</title>
+  <style>
+    body { background: #f0f8ff; font-family: sans-serif; }
+    #canvas { border: 2px solid #666; background: #fff; cursor: crosshair; }
+    .panel { margin-top: 8px; }
+    .panel span { margin-right: 18px; font-size: 18px; }
+    button { margin-left: 12px; }
+  </style>
+</head>
+<body>
+  <h2>Roller Coaster Simulator (h, v, a, p)</h2>
+  <p>
+    <b>Instructions:</b> Draw your own track by dragging on the canvas.<br>
+    The car starts at <b>20 m/s</b> and is affected by gravity depending on slope.<br>
+    <b>Momentum</b> is calculated using <code>p = m × v</code>.  
+    <b>Assume mass m = 1 kg</b>.
+  </p>
+  <canvas id="canvas" width="700" height="380"></canvas>
+  <div class="panel">
+    <button onclick="resetTrack()">Reset Track</button>
+    <button onclick="start()">Start</button>
+    <button onclick="pause()">Pause</button>
+    <span id="status"></span>
+  </div>
+  <div class="panel">
+    <span>Height h = <span id="height">0</span> m</span>
+    <span>Velocity v = <span id="vel">0</span> m/s</span>
+    <span>Acceleration a = <span id="acc">0</span> m/s²</span>
+    <span>Momentum p = <span id="mom">0</span> kg·m/s</span>
+    <span>Gravity g = 9.8 m/s²</span>
+  </div>
+  <script>
+    const m = 1, g = 9.8, yBase = 350, yMax = 250;
+    let track = [], running = false, v = 20, paused = false, interval = null;
+    let pos = 0, dragDrawing = false;
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.addEventListener('mousedown', function(e) {
+      if (running) return;
+      track = [];
+      dragDrawing = true;
+      track.push([e.offsetX, e.offsetY]);
+      draw();
+    });
+    canvas.addEventListener('mousemove', function(e) {
+      if (!dragDrawing || running) return;
+      let x = e.offsetX, y = e.offsetY;
+      if (track.length === 0 ||
+          Math.abs(x - track[track.length - 1][0]) + Math.abs(y - track[track.length - 1][1]) > 2) {
+        track.push([x, y]);
+        draw();
+      }
+    });
+    canvas.addEventListener('mouseup', function() {
+      dragDrawing = false;
+      draw();
+    });
+    canvas.addEventListener('mouseleave', function() {
+      dragDrawing = false;
+    });
+
+    function draw(ballPos = null) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (track.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(track[0][0], track[0][1]);
+        for (let i = 1; i < track.length - 1; i++) {
+          let xc = (track[i][0] + track[i + 1][0]) / 2;
+          let yc = (track[i][1] + track[i + 1][1]) / 2;
+          ctx.quadraticCurveTo(track[i][0], track[i][1], xc, yc);
+        }
+        ctx.quadraticCurveTo(
+          track[track.length - 1][0],
+          track[track.length - 1][1],
+          track[track.length - 1][0],
+          track[track.length - 1][1]
+        );
+        ctx.strokeStyle = "#2196f3";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
+
+      if (track.length > 0) {
+        ctx.beginPath();
+        ctx.arc(track[0][0], track[0][1], 7, 0, 2 * Math.PI);
+        ctx.fillStyle = "#00c853";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(track[track.length - 1][0], track[track.length - 1][1], 7, 0, 2 * Math.PI);
+        ctx.fillStyle = "#FF9800";
+        ctx.fill();
+      }
+
+      if (ballPos !== null && track.length > 1) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(ballPos[0], ballPos[1], 18, 11, 0, 0, 2 * Math.PI);
+        ctx.fillStyle = "#c62828";
+        ctx.fill();
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(ballPos[0] + 4, ballPos[1] - 2, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = "#bbdefb";
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function trackLength() {
+      let len = 0;
+      for (let i = 1; i < track.length; i++) {
+        let dx = track[i][0] - track[i - 1][0], dy = track[i][1] - track[i - 1][1];
+        len += Math.sqrt(dx * dx + dy * dy);
+      }
+      return len;
+    }
+
+    function getBallPos(pos) {
+      let total = trackLength();
+      let dist = pos * total, accum = 0;
+      for (let i = 1; i < track.length; i++) {
+        let dx = track[i][0] - track[i - 1][0], dy = track[i][1] - track[i - 1][1];
+        let seg = Math.sqrt(dx * dx + dy * dy);
+        if (accum + seg > dist) {
+          let t = (dist - accum) / seg;
+          let x = track[i - 1][0] + t * dx;
+          let y = track[i - 1][1] + t * dy;
+          return [x, y, i];
+        }
+        accum += seg;
+      }
+      return [...track[track.length - 1], track.length - 1];
+    }
+
+    function getHeight(y) {
+      return ((yBase - y) / yMax * 10).toFixed(2);
+    }
+
+    function getSlopeSin(i) {
+      if (i < 1 || i >= track.length) return 0;
+      let dx = track[i][0] - track[i - 1][0];
+      let dy = track[i][1] - track[i - 1][1];
+      let len = Math.sqrt(dx * dx + dy * dy);
+      return len === 0 ? 0 : -dy / len;
+    }
+
+    function resetTrack() {
+      running = false; paused = false; track = []; pos = 0; v = 20;
+      document.getElementById('status').innerText = '';
+      draw();
+      updateStatus(0, 20, 0, 20);
+    }
+
+    function start() {
+      if (track.length < 2) {
+        alert("Draw your track first!");
+        return;
+      }
+      running = true; paused = false; pos = 0;
+
+      draw();
+
+      interval = setInterval(function () {
+        if (paused || !running) return;
+        let [x, y, idx] = getBallPos(pos);
+        let h = getHeight(y);
+
+        let sinTheta = getSlopeSin(idx);
+        let a = g * sinTheta;
+        v += a * 0.03;
+        if (v < 0) v = 0;
+
+        let p = m * v;
+
+        draw([x, y]);
+        updateStatus(h, v, a.toFixed(2), p);
+
+        let dpos = v / 30 / trackLength();
+        if (dpos < 0.002) dpos = 0.002;
+        pos += dpos;
+        if (pos >= 1) {
+          running = false;
+          clearInterval(interval);
+        }
+      }, 30);
+    }
+
+    function pause() {
+      paused = !paused;
+      document.getElementById('status').innerText = paused ? 'Paused' : '';
+    }
+
+    function updateStatus(h, v, a, p) {
+      document.getElementById('height').innerText = h;
+      document.getElementById('vel').innerText = v.toFixed(2);
+      document.getElementById('acc').innerText = a;
+      document.getElementById('mom').innerText = p.toFixed(2);
+    }
+
+    draw();
+    updateStatus(0, 20, 0, 20);
+  </script>
+</body>
+</html>
